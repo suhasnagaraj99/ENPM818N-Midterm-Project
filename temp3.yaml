@@ -1,0 +1,156 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Group 20 - Template for Load Balancer, Launch Template and Auto Scaling Group
+
+Parameters:
+  VPC:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC ID
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet::Id
+    Description: Public Subnet A ID
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet::Id
+    Description: Public Subnet B ID
+
+  PublicSubnetC:
+    Type: AWS::EC2::Subnet::Id
+    Description: Public Subnet C ID
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet::Id
+    Description: Private Subnet A ID
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet::Id
+    Description: Private Subnet B ID
+
+  PrivateSubnetC:
+    Type: AWS::EC2::Subnet::Id
+    Description: Private Subnet C ID
+    Description: Public Subnet C ID
+
+  InstanceAMI:
+    Type: AWS::EC2::Image::Id
+    Description: AMI ID for EC2 Instances
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair to enable SSH access
+
+Resources:
+
+  LoadBalancerSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow internet traffic to load balancer
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: LoadBalancer_sg
+
+  InstanceSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow traffic from ALB and outbound to RDS
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: -1
+          SourceSecurityGroupId: !Ref LoadBalancerSG
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          DestinationSecurityGroupId: sg-0e13cb30e4c00755e
+      Tags:
+        - Key: Name
+          Value: instance_sg
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: Group20-ECommerce-TG
+      Port: 80
+      Protocol: HTTP
+      VpcId: !Ref VPC
+      TargetType: instance
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /
+      Matcher:
+        HttpCode: 200-399
+
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: Group20-ECommerce-LB
+      Scheme: internet-facing
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: '60'
+        - Key: routing.http2.enabled
+          Value: 'true'
+      Subnets:
+        - !Ref PublicSubnetA
+        - !Ref PublicSubnetB
+        - !Ref PublicSubnetC
+      SecurityGroups:
+        - !Ref LoadBalancerSG
+
+  HTTPListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: group20_launch_template
+      LaunchTemplateData:
+        InstanceType: t2.micro
+        ImageId: !Ref InstanceAMI
+        KeyName: !Ref KeyName
+        SecurityGroupIds:
+          - !Ref InstanceSG
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: group20-instance
+
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: Group20_ECommerce_ASG
+      MinSize: 1
+      MaxSize: 3
+      DesiredCapacity: 1
+      VPCZoneIdentifier:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+        - !Ref PrivateSubnetC
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      TargetGroupARNs:
+        - !Ref TargetGroup
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: 10
+      Tags:
+        - Key: Name
+          Value: group20-instance
+          PropagateAtLaunch: true

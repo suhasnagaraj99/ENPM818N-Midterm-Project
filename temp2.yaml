@@ -1,0 +1,110 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Group 20 - Template for creating RDS MySQL instance in private subnets with security group
+
+Parameters:
+  VPC:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC where RDS and Security Group will be created
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet::Id
+    Description: Private Subnet A ID
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet::Id
+    Description: Private Subnet B ID
+
+  PrivateSubnetC:
+    Type: AWS::EC2::Subnet::Id
+    Description: Private Subnet C ID
+
+  DBUsername:
+    Description: The database admin account username
+    Type: String
+    Default: admin
+
+  DBPassword:
+    Description: The database admin account password
+    Type: String
+    NoEcho: true
+
+  DBInstanceClass:
+    Type: String
+    Default: db.t3.micro
+
+  DBAllocatedStorage:
+    Type: Number
+    Default: 20
+
+Resources:
+
+  RDSMonitoringRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: rds-monitoring-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: monitoring.rds.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole
+
+  RdsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow RDS access from EC2 instances
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: db_vpc_sg
+
+  RDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS
+      SubnetIds:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+        - !Ref PrivateSubnetC
+      Tags:
+        - Key: Name
+          Value: group20_rds_subnet_group
+
+  MyRDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: group20-db
+      Engine: mysql
+      EngineVersion: 8.0.40
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: !Ref DBAllocatedStorage
+      VPCSecurityGroups:
+        - !Ref RdsSecurityGroup
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+      MultiAZ: true
+      PubliclyAccessible: false
+      BackupRetentionPeriod: 7
+      EnableCloudwatchLogsExports:
+        - error
+        - general
+        - slowquery
+        - audit
+      MonitoringInterval: 60
+      MonitoringRoleArn: !GetAtt RDSMonitoringRole.Arn
+      DeletionProtection: true
+      StorageEncrypted: true
+      StorageType: gp2
+      MaxAllocatedStorage: 100
+      Tags:
+        - Key: Name
+          Value: group20-db
+
+Outputs:
+  RDSInstanceEndpoint:
+    Description: Endpoint of the RDS MySQL instance
+    Value: !GetAtt MyRDSInstance.Endpoint.Address
